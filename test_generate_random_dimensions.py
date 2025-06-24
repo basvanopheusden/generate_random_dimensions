@@ -4,6 +4,8 @@ from functools import reduce
 
 import pytest
 
+from generate_random_dimensions import generate_random_dimensions
+
 
 @pytest.mark.core
 def test_total_elements_forcing_specific_result() -> None:
