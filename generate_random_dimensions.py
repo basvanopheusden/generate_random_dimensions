@@ -85,3 +85,115 @@ def generate_random_dimensions(
     function selects one uniformly at random (or pseudo-randomly if an rng
     is provided).
     """
+
+    # ------------------------------------------------------------------
+    # Input validation
+    # ------------------------------------------------------------------
+
+    if num_dimensions < 0:
+        raise ValueError("num_dimensions must be non-negative")
+
+    if min_size < 1:
+        raise ValueError("min_size must be at least 1")
+
+    if max_size < min_size:
+        raise ValueError("max_size must be greater than or equal to min_size")
+
+    if total_elements is not None and total_elements < 1:
+        raise ValueError("total_elements must be at least 1 if provided")
+
+    if gcd_constraint is not None and gcd_constraint < 1:
+        raise ValueError("gcd_constraint must be at least 1 if provided")
+
+    rng = rng or random
+
+    # Special case: zero dimensions
+    if num_dimensions == 0:
+        if total_elements is not None and total_elements != 1:
+            raise ValueError("total_elements must be 1 when num_dimensions is 0")
+        if gcd_constraint is not None:
+            raise ValueError(
+                "gcd_constraint cannot be satisfied when num_dimensions is 0"
+            )
+        return ()
+
+    # Candidate values respecting the basic size bounds and gcd constraint
+    if gcd_constraint is not None:
+        candidates = [
+            v for v in range(min_size, max_size + 1) if v % gcd_constraint == 0
+        ]
+        if not candidates:
+            raise ValueError(
+                "No multiples of gcd_constraint fall within the allowed size range"
+            )
+    else:
+        candidates = list(range(min_size, max_size + 1))
+
+    # Quick infeasibility checks when both total_elements and gcd_constraint
+    # are provided. These checks only cover obvious contradictions.
+    if total_elements is not None and gcd_constraint is not None:
+        if gcd_constraint not in candidates:
+            raise ValueError(
+                "gcd_constraint is outside the allowed size range"
+            )
+        if total_elements % gcd_constraint != 0:
+            raise ValueError(
+                "total_elements is not divisible by gcd_constraint"
+            )
+        if gcd_constraint ** num_dimensions > total_elements:
+            raise ValueError(
+                "Constraints on total_elements and gcd_constraint cannot be satisfied"
+            )
+
+    # Pre-compute some helper values for pruning during search
+    min_candidate = min(candidates)
+    max_candidate = max(candidates)
+
+    results: List[Tuple[int, ...]] = []
+    current: List[int] = []
+
+    def dfs(index: int, product: int, current_gcd: int, used_gcd_val: bool) -> None:
+        """Depth-first search for valid tuples."""
+        if index == num_dimensions:
+            if total_elements is not None and product != total_elements:
+                return
+            if gcd_constraint is not None:
+                if current_gcd != gcd_constraint or not used_gcd_val:
+                    return
+            results.append(tuple(current))
+            return
+
+        remaining = num_dimensions - index - 1
+        for value in candidates:
+            new_product = product * value
+            if total_elements is not None:
+                if new_product > total_elements:
+                    continue
+                if total_elements % new_product != 0 and remaining == 0:
+                    continue
+                # Bound the remaining product to prune impossible branches
+                if remaining > 0:
+                    if new_product * (min_candidate ** remaining) > total_elements:
+                        continue
+                    if new_product * (max_candidate ** remaining) < total_elements:
+                        continue
+
+            new_gcd = math.gcd(current_gcd, value) if index > 0 else value
+            if gcd_constraint is not None:
+                if new_gcd < gcd_constraint or new_gcd % gcd_constraint != 0:
+                    continue
+
+            current.append(value)
+            dfs(index + 1, new_product, new_gcd, used_gcd_val or value == gcd_constraint)
+            current.pop()
+
+    dfs(0, 1, 0, False)
+
+    if not results:
+        if total_elements is not None and gcd_constraint is not None:
+            raise ValueError(
+                "total_elements and gcd_constraint cannot be simultaneously satisfied"
+            )
+        raise ValueError("No tuple satisfying the requested constraints can be found")
+
+    return rng.choice(results)
